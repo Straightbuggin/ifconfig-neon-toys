@@ -7,7 +7,7 @@ use ifconfig_neon_toys::ThreadPool;
 
 fn main() {
     let listener = TcpListener::bind("[::]:8080").unwrap();
-    let pool = ThreadPool::new(4);
+    let pool = ThreadPool::new(100);
 
 
 
@@ -36,10 +36,18 @@ fn handle_connection(mut stream: TcpStream) {
 
     let ip_address = peer_addr.ip();
 
+    let formatted_ip = match ip_address {
+        std::net::IpAddr::V4(v4_addr) => format!("{}", v4_addr),
+        std::net::IpAddr::V6(v6_addr) => match is_ipv4_mapped(v6_addr) {
+            Some(v4_addr) => format!("{}", v4_addr),
+            None => format!("{}", v6_addr),
+        },
+    };
+
     let mut buf_reader = BufReader::new(&mut stream);
 
 
-    headers_html.push_str(&format!("<tr><td>IP Address</td><td><strong>{}</strong></td></tr>", ip_address));
+    headers_html.push_str(&format!("<tr><td>IP Address</td><td><strong>{}</strong></td></tr>", formatted_ip));
     loop {
         let mut line = String::new();
         let bytes_read = buf_reader.read_line(&mut line).unwrap();
@@ -68,3 +76,11 @@ fn handle_connection(mut stream: TcpStream) {
     stream.write_all(response.as_bytes()).unwrap();
 }
 
+fn is_ipv4_mapped(ipv6: std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> {
+    let octets = ipv6.octets();
+    if &octets[0..10] == [0; 10] && octets[10] == 0xff && octets[11] == 0xff {
+        Some(std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]))
+    } else {
+        None
+    }
+}
