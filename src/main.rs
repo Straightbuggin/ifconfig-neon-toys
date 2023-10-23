@@ -1,23 +1,23 @@
+extern crate reqwest;
+
+use ifconfig_neon_toys::ThreadPool;
+use reqwest::Error;
+use serde::Deserialize;
 use std::{
     io::{prelude::*, BufReader},
-    net::{TcpListener, TcpStream}, 
+    net::{TcpListener, TcpStream},
 };
-use ifconfig_neon_toys::ThreadPool;
+use tokio::runtime::Runtime;
 
 fn main() {
     let tcp_listener = TcpListener::bind("[::]:8080").unwrap();
     let listener = tcp_listener;
     let pool = ThreadPool::new(100);
 
-
-
-    
     for stream in listener.incoming() {
         let stream = stream.unwrap();
 
-        pool.execute(|| {
-            handle_connection(stream)
-        });
+        pool.execute(|| handle_connection(stream));
     }
     println!("shutting down.");
 }
@@ -46,18 +46,21 @@ fn handle_connection(mut stream: TcpStream) {
     let mut x_forwarded_for = String::new();
     let mut keep_alive = String::new();
 
-    // Initial processing to get the method from the request line
     {
         let mut request_line = String::new();
         buf_reader.read_line(&mut request_line).unwrap();
-        method = request_line.split_whitespace().next().unwrap_or("").to_string();
+        method = request_line
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
     }
 
     loop {
         let mut line = String::new();
         let bytes_read = buf_reader.read_line(&mut line).unwrap();
         if bytes_read == 0 || line == "\r\n" {
-            break;  // End of headers or connection closed
+            break;
         }
 
         let parts: Vec<&str> = line.trim().splitn(2, ':').collect();
@@ -73,7 +76,7 @@ fn handle_connection(mut stream: TcpStream) {
                 "accept-charset" => charset = header_value.to_string(),
                 "x-forwarded-for" => x_forwarded_for = header_value.to_string(),
                 "connection" => keep_alive = header_value.to_string(),
-                _ => {},
+                _ => {}
             }
         }
     }
@@ -81,49 +84,164 @@ fn handle_connection(mut stream: TcpStream) {
     let port = peer_addr.port();
 
     let ip_address = if !x_forwarded_for.is_empty() {
-        x_forwarded_for.split(',').next().unwrap_or("").trim().to_string()
+        x_forwarded_for
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string()
     } else {
         peer_addr.ip().to_string()
     };
-    
-    headers_html.push_str(&format!(
-        "<tr><td>IP Address</td><td><strong>{}</strong></td></tr>\
-        <tr><td>Port</td><td>{}</td></tr>\
-        <tr><td>Method</td><td>{}</td></tr>\
-        <tr><td>User Agent</td><td>{}</td></tr>\
-        <tr><td>Language</td><td>{}</td></tr>\
-        <tr><td>Referer</td><td>{}</td></tr>\
-        <tr><td>Encoding</td><td>{}</td></tr>\
-        <tr><td>MIME Type</td><td>{}</td></tr>\
-        <tr><td>Charset</td><td>{}</td></tr>\
-        <tr><td>X-Forwarded-For</td><td>{}</td></tr>\
-        <tr><td>Keep Alive</td><td>{}</td></tr>",
-        ip_address,
-        port,
-        method,
-        user_agent,
-        language,
-        referer,
-        encoding,
-        mime_type,
-        charset,
-        x_forwarded_for,
-        keep_alive,
-    ));
+
+    let ip_info = Runtime::new()
+        .unwrap()
+        .block_on(fetch_ip_info(&ip_address))
+        .unwrap();
+
+    let ip_info_rows = vec![
+        ("Continent", ip_info.continent.clone()),
+        ("Continent Code", ip_info.continentCode.clone()),
+        ("Country", ip_info.country.clone()),
+        ("Country Code", ip_info.countryCode.clone()),
+        ("Region", ip_info.region.clone()),
+        ("Region Name", ip_info.regionName.clone()),
+        ("City", ip_info.city.clone()),
+        ("District", ip_info.district.clone()),
+        ("ZIP Code", ip_info.zip.clone()),
+        ("Latitude", ip_info.lat.to_string()),
+        ("Longitude", ip_info.lon.to_string()),
+        ("Timezone", ip_info.timezone.clone()),
+        ("Offset", ip_info.offset.to_string()),
+        ("Currency", ip_info.currency.clone()),
+        ("ISP", ip_info.isp.clone()),
+        ("Organization", ip_info.org.clone()),
+        ("AS Name", ip_info.asname.clone()),
+        ("Reverse DNS", ip_info.reverse.clone()),
+        ("Mobile", ip_info.mobile.to_string()),
+        ("Proxy", ip_info.proxy.to_string()),
+        ("Hosting", ip_info.hosting.to_string()),
+    ];
+
+    let header_rows = vec![
+        ("IP Address", ip_address.to_string()),
+        ("Port", port.to_string()),
+        ("Method", method.clone()),
+        ("User Agent", user_agent.clone()),
+        ("Language", language.clone()),
+        ("Referer", referer.clone()),
+        ("Encoding", encoding.clone()),
+        ("MIME Type", mime_type.clone()),
+        ("Charset", charset.clone()),
+        ("X-Forwarded-For", x_forwarded_for.clone()),
+        ("Keep Alive", keep_alive.clone()),
+    ];
+
+    let headers_html = create_table("Your Information", header_rows);
+    let ip_info_table = create_table("Your IP Information", ip_info_rows);
+
+    let response_body = format!(
+        "<html>\
+        <head>\
+            <style>\
+                h1 {{\
+                    text-align: center;\
+                    padding-top: 20px;\
+                }}\
+                body {{\
+                    font-family: Arial, sans-serif;\
+                    margin: 0;\
+                    padding: 0;\
+                    background-color: #f0f0f0;\
+                }}\
+                table {{\
+                    border-collapse: collapse;\
+                    margin: 20px auto;\
+                    background-color: #ffffff;\
+                }}\
+                th, td {{\
+                    border: 1px solid #ddd;\
+                    text-align: left;\
+                    padding: 8px;\
+                }}\
+                th {{\
+                    background-color: #2c3e50;\
+                    color: white;\
+                }}\
+            </style>\
+        </head>\
+        <body>\
+            <h1>What's my IP?</h1>\
+            {}\
+            {}\
+        </body>\
+    </html>",
+        headers_html,
+        ip_info_table
+    );
 
     let status_line = "HTTP/1.1 200 OK";
-    let filename = "response.html";
-
-    let mut contents = std::fs::read_to_string(filename).unwrap();
-    contents = contents.replace("{headers_table}", &headers_html);
-
-    let length = contents.len();
+    let length = response_body.len();
     let response = format!(
-        "{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}",
+        "{status_line}\r\nContent-Length: {length}\r\n\r\n{response_body}",
         status_line = status_line,
         length = length,
-        contents = contents
+        response_body = response_body
     );
 
     stream.write_all(response.as_bytes()).unwrap();
+}
+
+#[derive(Deserialize)]
+struct IpInfo {
+    continent: String,
+    continentCode: String,
+    country: String,
+    countryCode: String,
+    region: String,
+    regionName: String,
+    city: String,
+    district: String,
+    zip: String,
+    lat: f64,
+    lon: f64,
+    timezone: String,
+    offset: i64,
+    currency: String,
+    isp: String,
+    org: String,
+    asname: String,
+    reverse: String,
+    mobile: bool,
+    proxy: bool,
+    hosting: bool,
+}
+
+async fn fetch_ip_info(ip: &str) -> Result<IpInfo, Error> {
+    let var_name = format!("http://ip-api.com/json/{}?fields=message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,asname,reverse,mobile,proxy,hosting,query", ip);
+    let url = var_name;
+    let response = reqwest::get(&url).await?;
+    let ip_info: IpInfo = response.json().await?;
+    Ok(ip_info)
+}
+
+fn create_table(title: &str, rows: Vec<(&str, String)>) -> String {
+    let mut table_rows = String::new();
+    for (key, value) in rows {
+        table_rows.push_str(&format!("<tr><td>{}</td><td>{}</td></tr>", key, value));
+    }
+
+    format!(
+        "<table>\
+            <thead>\
+                <tr>\
+                    <th colspan=\"2\">{}</th>\
+                </tr>\
+            </thead>\
+            <tbody>\
+                {}\
+            </tbody>\
+        </table>",
+        title, table_rows
+    )
 }

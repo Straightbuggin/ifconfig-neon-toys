@@ -4,51 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>What's my IP?</title>
-    <style>
-        body {
-            text-align: center;
-            font-size: 1.2em;
-            background-color: #f0f0f0;  /* Light grey background */
-            color: #333;  /* Dark grey text */
-        }
-        h1 {
-            font-size: 3em;
-            color: #2c3e50;  /* Darker grey for h1 text */
-        }
-        table {
-            border-collapse: collapse;
-            margin: auto;
-            width: 60%;
-        }
-        table th {
-            font-size: 1.5:em;
-            background-color: #2c3e50;  /* Darker grey for table header background */
-            color: #f0f0f0;  /* Light grey for table header text */
-        }
-        table td {
-            font-size: 1em;
-            border: 1px solid #2c3e50;  /* Darker grey for border */
-            padding: 5px;
-            word-wrap: break-word;  /* Wrap long words onto the next line */
-        }
-        td:first-child {
-            width: 50%;  /* Adjusted width for the first column */
-            text-align: right;
-        }
-        td:last-child {
-            width: 50%;  /* Adjusted width for the second column */
-        }
-    </style>
 </head>
 <body>
     <h1>What's my IP?</h1>
-    <table>
-        <thead>
-            <tr>
-                <th colspan="2">Your Information</th>
-            </tr>
-        </thead>
-        {headers_table}
-    </table>
+    {headers_table}
+    {ip_info_table}
 </body>
 </html>
+
