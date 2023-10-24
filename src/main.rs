@@ -101,11 +101,11 @@ fn handle_connection(mut stream: TcpStream) {
 
     let ip_info_rows = vec![
         ("Continent", ip_info.continent.clone()),
-        ("Continent Code", ip_info.continentCode.clone()),
+        ("Continent Code", ip_info.continent_code.clone()),
         ("Country", ip_info.country.clone()),
-        ("Country Code", ip_info.countryCode.clone()),
+        ("Country Code", ip_info.country_code.clone()),
         ("Region", ip_info.region.clone()),
-        ("Region Name", ip_info.regionName.clone()),
+        ("Region Name", ip_info.region_name.clone()),
         ("City", ip_info.city.clone()),
         ("District", ip_info.district.clone()),
         ("ZIP Code", ip_info.zip.clone()),
@@ -195,11 +195,14 @@ fn handle_connection(mut stream: TcpStream) {
 #[derive(Deserialize)]
 struct IpInfo {
     continent: String,
-    continentCode: String,
+    #[serde(rename = "continentCode")]
+    continent_code: String,
     country: String,
-    countryCode: String,
+    #[serde(rename = "countryCode")]
+    country_code: String,
     region: String,
-    regionName: String,
+    #[serde(rename = "regionName")]
+    region_name: String,
     city: String,
     district: String,
     zip: String,
