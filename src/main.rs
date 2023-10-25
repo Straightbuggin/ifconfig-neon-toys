@@ -1,12 +1,17 @@
 extern crate reqwest;
 
 use ifconfig_neon_toys::ThreadPool;
-use reqwest::Error;
+use serde_json::Error as SerdeError;
+use serde_json::json;
+use reqwest::Error as ReqwestError;
 use serde::Deserialize;
 use std::{
     io::{prelude::*, BufReader},
     net::{TcpListener, TcpStream},
+    fmt,
+ 
 };
+
 use tokio::runtime::Runtime;
 
 fn main() {
@@ -23,7 +28,7 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream) {
-    let mut headers_html = String::new();
+   
 
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => addr,
@@ -35,8 +40,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     let mut buf_reader = BufReader::new(&mut stream);
 
-    // Variables to store the specified headers and other information
-    let mut method = String::new();
+  
     let mut user_agent = String::new();
     let mut language = String::new();
     let mut referer = String::new();
@@ -46,15 +50,15 @@ fn handle_connection(mut stream: TcpStream) {
     let mut x_forwarded_for = String::new();
     let mut keep_alive = String::new();
 
-    {
-        let mut request_line = String::new();
-        buf_reader.read_line(&mut request_line).unwrap();
-        method = request_line
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_string();
-    }
+    
+    let mut request_line = String::new();
+    buf_reader.read_line(&mut request_line).unwrap();
+    let method = request_line
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    
 
     loop {
         let mut line = String::new();
@@ -81,24 +85,60 @@ fn handle_connection(mut stream: TcpStream) {
         }
     }
 
-    let port = peer_addr.port();
 
-    let ip_address = if !x_forwarded_for.is_empty() {
-        x_forwarded_for
-            .split(',')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    } else {
-        peer_addr.ip().to_string()
-    };
 
+
+        let port = peer_addr.port();
+
+        let ip_address = if !x_forwarded_for.is_empty() {
+            x_forwarded_for
+                .split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        } else {
+            peer_addr.ip().to_string()
+        };
+
+    println!("User-Agent: {}", user_agent);
+
+
+    if user_agent.contains("curl") {
+        let ip_info_json = json!({
+            "IP Address": ip_address,
+            // "Port": port,
+            // "Method": method,
+            // "User Agent": user_agent,
+            // "Language": language,
+            // "Referer": referer,
+            // "Encoding": encoding,
+            // "MIME Type": mime_type,
+            // "Charset": charset,
+            // "X-Forwarded-For": x_forwarded_for,
+            // "Keep Alive": keep_alive,
+        });
+        let response_body = ip_info_json.to_string();
+        let status_line = "HTTP/1.1 200 OK";
+        let length = response_body.len();
+        let response = format!(
+            "{status_line}\r\nContent-Length: {length}\r\nContent-Type: application/json\r\n\r\n{response_body}",
+            status_line = status_line,
+            length = length,
+            response_body = response_body
+        );
+
+        stream.write_all(response.as_bytes()).unwrap();
+        return;
+    }
+    
     let ip_info = Runtime::new()
         .unwrap()
         .block_on(fetch_ip_info(&ip_address))
         .unwrap();
 
+
+    
     let ip_info_rows = vec![
         ("Continent", ip_info.continent.clone()),
         ("Continent Code", ip_info.continent_code.clone()),
@@ -137,11 +177,12 @@ fn handle_connection(mut stream: TcpStream) {
         ("Keep Alive", keep_alive.clone()),
     ];
 
+   
     let headers_html = create_table("Your Information", header_rows);
-    let ip_info_table = create_table("Your IP Information", ip_info_rows);
+        let ip_info_table = create_table("Your IP Information", ip_info_rows);
 
-    let response_body = format!(
-        "<html>\
+        let response_body = format!(
+            "<html>\
         <head>\
             <style>\
                 h1 {{\
@@ -176,21 +217,21 @@ fn handle_connection(mut stream: TcpStream) {
             {}\
         </body>\
     </html>",
-        headers_html,
-        ip_info_table
-    );
+            headers_html, ip_info_table
+        );
 
-    let status_line = "HTTP/1.1 200 OK";
-    let length = response_body.len();
-    let response = format!(
-        "{status_line}\r\nContent-Length: {length}\r\n\r\n{response_body}",
-        status_line = status_line,
-        length = length,
-        response_body = response_body
-    );
+        let status_line = "HTTP/1.1 200 OK";
+        let length = response_body.len();
+        let response = format!(
+            "{status_line}\r\nContent-Length: {length}\r\n\r\n{response_body}",
+            status_line = status_line,
+            length = length,
+            response_body = response_body
+        );
 
-    stream.write_all(response.as_bytes()).unwrap();
-}
+        stream.write_all(response.as_bytes()).unwrap();
+    }
+
 
 #[derive(Deserialize)]
 struct IpInfo {
@@ -220,13 +261,76 @@ struct IpInfo {
     hosting: bool,
 }
 
-async fn fetch_ip_info(ip: &str) -> Result<IpInfo, Error> {
-    let var_name = format!("http://ip-api.com/json/{}?fields=message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,asname,reverse,mobile,proxy,hosting,query", ip);
-    let url = var_name;
-    let response = reqwest::get(&url).await?;
-    let ip_info: IpInfo = response.json().await?;
-    Ok(ip_info)
+#[derive(Debug)]
+enum FetchIpInfoError {
+    Serde(SerdeError),
+    Reqwest(ReqwestError),
 }
+
+impl fmt::Display for FetchIpInfoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FetchIpInfoError::Serde(err) => write!(f, "Serde error: {}", err),
+            FetchIpInfoError::Reqwest(err) => write!(f, "Reqwest error: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for FetchIpInfoError {}
+
+impl From<SerdeError> for FetchIpInfoError {
+    fn from(err: SerdeError) -> Self {
+        FetchIpInfoError::Serde(err)
+    }
+}
+
+impl From<ReqwestError> for FetchIpInfoError {
+    fn from(err: ReqwestError) -> Self {
+        FetchIpInfoError::Reqwest(err)
+    }
+}
+
+async fn fetch_ip_info(ip: &str) -> Result<IpInfo, FetchIpInfoError> {
+    let url = format!("http://ip-api.com/json/{}?fields=message,continent,continentCode,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,asname,reverse,mobile,proxy,hosting,query", ip);
+    let response_text = reqwest::get(&url).await?.text().await?;
+
+
+        
+    if response_text.contains("\"message\"") {
+        // Error message received, return an empty IpInfo
+        Ok(IpInfo {
+            continent: String::new(),
+            continent_code: String::new(),
+            country: String::new(),
+            country_code: String::new(),
+            region: String::new(),
+            region_name: String::new(),
+            city: String::new(),
+            district: String::new(),
+            zip: String::new(),
+            lat: 0.0,
+            lon: 0.0,
+            timezone: String::new(),
+            offset: 0,
+            currency: String::new(),
+            isp: String::new(),
+            org: String::new(),
+            asname: String::new(),
+            reverse: String::new(),
+            mobile: false,
+            proxy: false,
+            hosting: false,
+        })
+    } else {
+        // No error message, try to deserialize the response
+        match serde_json::from_str(&response_text) {
+            Ok(ip_info) => Ok(ip_info),
+            Err(e) => Err(e.into()),  // Convert SerdeError to your Error type
+        }
+    }
+}
+
+
 
 fn create_table(title: &str, rows: Vec<(&str, String)>) -> String {
     let mut table_rows = String::new();
