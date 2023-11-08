@@ -62,7 +62,15 @@ fn handle_connection(mut stream: TcpStream) {
 
     loop {
         let mut line = String::new();
-        let bytes_read = buf_reader.read_line(&mut line).unwrap();
+
+        let bytes_read = match buf_reader.read_line(&mut line) {
+            Ok(size) => size,
+            Err(e) => {
+                eprintln!("Error reading line: {}", e);
+                return;
+            }
+        };
+
         if bytes_read == 0 || line == "\r\n" {
             break;
         }
